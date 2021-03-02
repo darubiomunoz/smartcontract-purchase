@@ -2,7 +2,7 @@
 
 pragma solidity >=0.7.0 <0.9.0;
 
-contract BlindAuction {
+contract Purchase {
     uint public value;
     address payable public seller;
     address payable public buyer;
@@ -39,6 +39,30 @@ contract BlindAuction {
         seller = payable(msg.sender);
         value = msg.value / 2;
         
-        require((2 * value) == msg.value, "tThe value has to be even.");
+        require((2 * value) == msg.value, "The value has to be even.");
+    }
+
+    function abort() public onlySeller inState(State.Created) {
+        emit Aborted();
+        state = State.Inactive;
+        seller.transfer(address(this).balance);
+    }
+
+    function confirmPurchase() public inState(State.Created) condition(msg.value == (2 * value)) payable {
+        emit PurchaseConfirmed();
+        buyer = payable(msg.sender);
+        state = State.Locked;
+    }
+
+    function confirmItemReceived() public onlyBuyer inState(State.Locked) {
+        emit ItemReceived();
+        state = State.Release;
+        buyer.transfer(value);
+    }
+
+    function refundSeller() public onlySeller inState(State.Release) {
+        emit SellerRefunded();
+        state = State.Inactive;
+        seller.transfer(value * 3);
     }
 }
