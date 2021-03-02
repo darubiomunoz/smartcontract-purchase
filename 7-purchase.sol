@@ -8,6 +8,7 @@ contract Purchase {
     address payable public buyer;
 
     enum State { Created, Locked, Release, Inactive }
+    // The state variable has a default value of the first member "State.Created".
     State public state;
 
     modifier condition(bool _condition) {
@@ -35,34 +36,46 @@ contract Purchase {
     event ItemReceived();
     event SellerRefunded();
 
+    // Ensure that "msg.value" is an even number.
+    // Division will truncate if it's an odd number. Check via multiplication that it wasn't an odd number.
     constructor() payable {
         seller = payable(msg.sender);
         value = msg.value / 2;
         
-        require((2 * value) == msg.value, "The value has to be even.");
+        require(msg.value == (2 * value), "The value has to be even.");
     }
 
+    /// Abot the purchase and reclaim the ether.
+    /// This function can only be called by the seller befire the contract is Locked.
     function abort() public onlySeller inState(State.Created) {
         emit Aborted();
         state = State.Inactive;
+        // We use transer here directly. It's reentrancy-safe, because it's the last call in this function and we already changed the state.
         seller.transfer(address(this).balance);
     }
 
+    /// Confirm the purchase as buyer. The transaction has to include "value * 2" ether.
+    /// The ether will be locked until the function confirmItemReceived is called.
     function confirmPurchase() public inState(State.Created) condition(msg.value == (2 * value)) payable {
         emit PurchaseConfirmed();
         buyer = payable(msg.sender);
         state = State.Locked;
     }
 
+    /// Confirm that you (the buyer) received the item. This will release the locked ether.
     function confirmItemReceived() public onlyBuyer inState(State.Locked) {
         emit ItemReceived();
+        // It's important to change the state first because otherwise, the contracts called using "send" bellow can call in again here.
         state = State.Release;
         buyer.transfer(value);
     }
 
+    /// This function refunds the seller.
+    /// i.e. pays back the locked funds of the seller. 
     function refundSeller() public onlySeller inState(State.Release) {
         emit SellerRefunded();
         state = State.Inactive;
+        // It's important to change the state first because otherwise the contracts called using "send" bellow can call in again here.
         seller.transfer(value * 3);
     }
 }
